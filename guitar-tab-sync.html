@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guitar Tab Sync</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; font-size: 14px; background: #111; color: #e8e8e8; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  header { padding: 10px 16px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  header h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: #fff; }
+  .status-pill { font-size: 11px; padding: 3px 10px; border-radius: 99px; background: #2a2a2a; color: #888; }
+  .status-pill.ok { background: #0f3d2a; color: #4ade80; }
+  .status-pill.warn { background: #3d2e0a; color: #fbbf24; }
+  #time-disp { font-family: monospace; font-size: 12px; color: #666; margin-left: auto; }
+
+  #main { display: grid; grid-template-columns: 1fr 380px; flex: 1; overflow: hidden; }
+
+  /* TAB PANEL */
+  #tab-panel { display: flex; flex-direction: column; border-right: 1px solid #2a2a2a; overflow: hidden; }
+  #tab-toolbar { padding: 8px 12px; background: #181818; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  #tab-canvas-wrap { flex: 1; overflow: hidden; position: relative; background: #0d0d0d; }
+  #tab-scroll-inner { position: absolute; top: 0; left: 0; width: 100%; }
+  #tab-scroll-inner canvas, #tab-scroll-inner img { width: 100%; display: block; }
+  #no-pdf { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #444; gap: 12px; }
+
+  #progress-wrap { height: 4px; background: #222; flex-shrink: 0; cursor: pointer; }
+  #progress-bar { height: 100%; width: 0%; background: #3b82f6; }
+
+  /* RIGHT PANEL */
+  #right-panel { display: flex; flex-direction: column; background: #151515; overflow: hidden; }
+
+  #source-tabs { display: flex; background: #0d0d0d; border-bottom: 1px solid #222; flex-shrink: 0; }
+  .src-tab { flex: 1; padding: 8px; font-size: 12px; text-align: center; cursor: pointer; color: #555; border: none; background: transparent; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; }
+  .src-tab.on { color: #e8e8e8; border-bottom-color: #3b82f6; }
+
+  #video-wrap { aspect-ratio: 16/9; width: 100%; background: #000; position: relative; flex-shrink: 0; }
+  #video-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
+  #video-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #333; font-size: 12px; flex-direction: column; gap: 8px; }
+  #local-video { width: 100%; height: 100%; display: none; background: #000; }
+
+  #video-input-area { flex-shrink: 0; background: #1a1a1a; border-top: 1px solid #222; border-bottom: 1px solid #222; }
+  #yt-row { display: flex; gap: 6px; padding: 8px 10px; }
+  #yt-row input { flex: 1; background: #222; border: 1px solid #333; border-radius: 6px; padding: 5px 8px; color: #e8e8e8; font-size: 12px; font-family: monospace; }
+  #yt-row input:focus { outline: none; border-color: #3b82f6; }
+  #local-row { padding: 8px 10px; display: none; }
+  #local-drop { border: 1.5px dashed #333; border-radius: 8px; padding: 14px; text-align: center; cursor: pointer; color: #555; font-size: 12px; line-height: 1.6; transition: background .15s; }
+  #local-drop:hover { background: #1e1e1e; border-color: #555; color: #888; }
+  #local-drop input { display: none; }
+
+  #local-controls { display: none; align-items: center; gap: 8px; padding: 6px 10px; background: #161616; border-top: 1px solid #1e1e1e; }
+  #local-controls.show { display: flex; }
+  #play-btn { background: transparent; border: none; color: #aaa; cursor: pointer; font-size: 18px; padding: 0; line-height: 1; }
+  #play-btn:hover { color: #fff; }
+  #local-time { font-family: monospace; font-size: 11px; color: #555; white-space: nowrap; }
+  #local-seek { flex: 1; accent-color: #3b82f6; cursor: pointer; height: 4px; }
+  #local-vol { width: 56px; accent-color: #444; }
+
+  /* CONTROLS */
+  #controls { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 12px; }
+
+  .section-title { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #555; margin-bottom: 6px; }
+
+  .btn { padding: 6px 12px; border-radius: 6px; border: 1px solid #333; background: #222; color: #ccc; font-size: 12px; cursor: pointer; transition: background .1s; white-space: nowrap; }
+  .btn:hover { background: #2a2a2a; border-color: #444; color: #fff; }
+  .btn.pri { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn.pri:hover { background: #2563eb; }
+  .btn.green { background: #166534; border-color: #16a34a; color: #4ade80; }
+  .btn.green:hover { background: #14532d; }
+  .btn.sm { padding: 4px 8px; font-size: 11px; }
+
+  kbd { background: #222; border: 1px solid #444; border-radius: 3px; padding: 1px 4px; font-size: 10px; font-family: monospace; color: #aaa; }
+
+  .mode-switch { display: flex; gap: 4px; background: #1a1a1a; border-radius: 6px; padding: 3px; }
+  .mode-btn { flex: 1; padding: 5px; border-radius: 4px; border: none; background: transparent; color: #666; font-size: 12px; cursor: pointer; transition: background .1s, color .1s; }
+  .mode-btn.on { background: #2a2a2a; color: #fff; }
+
+  .hint { font-size: 11px; color: #555; line-height: 1.6; }
+
+  #marker-list { display: flex; flex-direction: column; gap: 3px; }
+  .marker-item { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; border: 1px solid #252525; background: #1c1c1c; }
+  .marker-item.active { background: #0f2640; border-color: #3b82f6; }
+  .m-ts { font-family: monospace; color: #4ade80; min-width: 38px; font-size: 11px; }
+  .m-label { flex: 1; color: #666; font-size: 11px; }
+  .m-del { background: transparent; border: none; color: #444; cursor: pointer; font-size: 15px; padding: 0 2px; line-height: 1; }
+  .m-del:hover { color: #ef4444; }
+
+  .scroll-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #export-row { display: flex; gap: 6px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎸 Guitar Tab Sync</h1>
+  <span class="status-pill" id="status-pill">No video loaded</span>
+  <span id="time-disp">0:00</span>
+</header>
+
+<div id="main">
+
+  <!-- TAB PANEL -->
+  <div id="tab-panel">
+    <div id="tab-toolbar">
+      <label style="cursor:pointer">
+        <input type="file" id="pdf-input" accept=".pdf,image/*" onchange="handleFile(this.files[0])">
+        <span class="btn sm">📄 Open Tab PDF / Image</span>
+      </label>
+      <div style="display:flex;gap:4px;margin-left:auto">
+        <button class="btn sm" onclick="scrollTabBy(-120)">↑</button>
+        <button class="btn sm" onclick="scrollTabBy(120)">↓</button>
+      </div>
+      <div class="mode-switch" id="mode-switch" style="display:none">
+        <button class="mode-btn on" id="mb-sync" onclick="setMode('sync')">Sync</button>
+        <button class="mode-btn" id="mb-play" onclick="setMode('play')">Play</button>
+      </div>
+    </div>
+
+    <div id="tab-canvas-wrap">
+      <div id="tab-scroll-inner">
+        <div id="no-pdf">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.5"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <span style="color:#444;font-size:13px">Open a tab PDF or image to get started</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="progress-wrap" onclick="seekFromProgress(event)">
+      <div id="progress-bar"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div id="right-panel">
+
+    <div id="source-tabs">
+      <button class="src-tab on" id="st-yt" onclick="switchSource('yt')">▶ YouTube</button>
+      <button class="src-tab" id="st-local" onclick="switchSource('local')">📁 Local File</button>
+    </div>
+
+    <div id="video-wrap">
+      <div id="video-placeholder">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="#333"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
+        <span>Load a video to get started</span>
+      </div>
+      <div id="yt-player-wrap" style="display:none;position:absolute;inset:0"></div>
+      <video id="local-video" preload="metadata"></video>
+    </div>
+
+    <div id="video-input-area">
+      <div id="yt-row">
+        <input type="text" id="yt-url" placeholder="https://www.youtube.com/watch?v=..." onkeydown="if(event.key==='Enter')loadYT()">
+        <button class="btn pri" onclick="loadYT()">Load</button>
+      </div>
+      <div id="local-row">
+        <div id="local-drop" onclick="document.getElementById('video-file-input').click()">
+          <input type="file" id="video-file-input" accept="video/*" onchange="loadLocalVideo(this.files[0])">
+          <div>Click or drag a video file here</div>
+          <div style="font-size:11px;margin-top:3px;color:#444">mp4 · mov · mkv · webm · avi</div>
+        </div>
+      </div>
+      <div id="local-controls">
+        <button id="play-btn" onclick="togglePlay()">▶</button>
+        <span id="local-time">0:00 / 0:00</span>
+        <input type="range" id="local-seek" min="0" max="100" value="0" step="0.1" oninput="seekLocal(this.value)">
+        <input type="range" id="local-vol" min="0" max="1" step="0.05" value="1" title="Volume" oninput="setVol(this.value)">
+      </div>
+      <div id="speed-row" style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#161616;border-top:1px solid #1e1e1e">
+        <span style="font-size:11px;color:#555;white-space:nowrap">Speed</span>
+        <input type="range" id="speed-slider" min="0.25" max="2" step="0.05" value="1" oninput="setSpeed(this.value)" style="flex:1;accent-color:#3b82f6;cursor:pointer">
+        <span id="speed-label" style="font-family:monospace;font-size:11px;color:#4ade80;min-width:32px;text-align:right">1×</span>
+        <button class="btn sm" onclick="resetSpeed()" style="padding:2px 7px;font-size:11px">1×</button>
+      </div>
+    </div>
+
+    <div id="controls">
+      <div id="sync-section">
+        <div class="section-title">Sync markers</div>
+        <p class="hint">Play the video. Scroll the tab to where the song is, then press <kbd>M</kbd> or click the button to drop a marker. Repeat every few bars.</p>
+        <div style="margin-top:8px;display:flex;gap:6px">
+          <button class="btn green" style="flex:1" onclick="addMarker()">+ Mark position &nbsp;<kbd>M</kbd></button>
+          <button class="btn sm" onclick="clearMarkers()">Clear all</button>
+        </div>
+        <div style="margin-top:8px" id="marker-list"></div>
+      </div>
+
+      <div>
+        <div class="section-title">Scroll tab manually</div>
+        <div class="scroll-btns">
+          <button class="btn" onclick="scrollTabBy(-200)">↑ Large</button>
+          <button class="btn" onclick="scrollTabBy(200)">↓ Large</button>
+          <button class="btn" onclick="scrollTabBy(-60)">↑ Small</button>
+          <button class="btn" onclick="scrollTabBy(60)">↓ Small</button>
+        </div>
+        <p class="hint" style="margin-top:6px">Or use <kbd>↑</kbd> <kbd>↓</kbd> arrow keys / scroll wheel over the tab.</p>
+      </div>
+
+      <div>
+        <div class="section-title">Save / Load markers</div>
+        <div id="export-row">
+          <button class="btn sm" onclick="exportMarkers()">Export JSON</button>
+          <label style="cursor:pointer">
+            <input type="file" accept=".json" style="display:none" onchange="importMarkers(this)">
+            <span class="btn sm">Import JSON</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let ytPlayer = null, ytReady = false;
+let localVideo = document.getElementById('local-video');
+let markers = [], mode = 'sync', source = 'yt';
+let tabOffset = 0, animFrame = null, isSeeking = false;
+
+function fmt(s) {
+  if (!isFinite(s) || s < 0) return '0:00';
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
+function setStatus(type, msg) {
+  const p = document.getElementById('status-pill');
+  p.textContent = msg;
+  p.className = 'status-pill ' + (type === 'ok' ? 'ok' : type === 'warn' ? 'warn' : '');
+}
+
+function getCurrentTime() {
+  if (source === 'yt' && ytReady && ytPlayer) return ytPlayer.getCurrentTime() || 0;
+  if (source === 'local') return localVideo.currentTime || 0;
+  return 0;
+}
+function getDuration() {
+  if (source === 'yt' && ytReady && ytPlayer) return ytPlayer.getDuration() || 0;
+  if (source === 'local') return localVideo.duration || 0;
+  return 0;
+}
+function isReady() {
+  if (source === 'yt') return ytReady;
+  if (source === 'local') return !!localVideo.src && localVideo.readyState >= 1;
+  return false;
+}
+
+// ── SOURCE SWITCH ──────────────────────────────────────
+function switchSource(s) {
+  source = s;
+  document.getElementById('st-yt').className = 'src-tab' + (s === 'yt' ? ' on' : '');
+  document.getElementById('st-local').className = 'src-tab' + (s === 'local' ? ' on' : '');
+  document.getElementById('yt-row').style.display = s === 'yt' ? 'flex' : 'none';
+  document.getElementById('local-row').style.display = s === 'local' ? 'block' : 'none';
+}
+
+// ── YOUTUBE ────────────────────────────────────────────
+function loadYT() {
+  const url = document.getElementById('yt-url').value.trim();
+  const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  if (!match) { alert('Paste a valid YouTube URL (youtube.com/watch?v=... or youtu.be/...)'); return; }
+  const vid = match[1];
+
+  document.getElementById('video-placeholder').style.display = 'none';
+  localVideo.style.display = 'none';
+  document.getElementById('local-controls').className = '';
+  const wrap = document.getElementById('yt-player-wrap');
+  wrap.style.display = 'block';
+  if (!wrap.querySelector('#yt-player')) { const d = document.createElement('div'); d.id = 'yt-player'; wrap.appendChild(d); }
+
+  const errMap = { 2: 'Invalid video ID', 5: 'HTML5 player error', 100: 'Video not found or private', 101: 'Embedding disabled by owner — use Local File instead', 150: 'Embedding disabled by owner — use Local File instead' };
+
+  function init() {
+    if (ytPlayer) { ytPlayer.loadVideoById(vid); return; }
+    ytPlayer = new YT.Player('yt-player', {
+      videoId: vid, width: '100%', height: '100%',
+      playerVars: { controls: 1, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => { ytReady = true; setStatus('ok', 'Video loaded — ready to sync'); startLoop(); },
+        onStateChange: e => {
+          if (e.data === YT.PlayerState.PLAYING) setStatus('ok', 'Playing');
+          else if (e.data === YT.PlayerState.PAUSED) setStatus('warn', 'Paused');
+        },
+        onError: e => setStatus('warn', errMap[e.data] || 'YouTube error ' + e.data)
+      }
+    });
+  }
+
+  window.onYouTubeIframeAPIReady = init;
+  if (window.YT && window.YT.Player) { init(); return; }
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+}
+
+// ── LOCAL VIDEO ────────────────────────────────────────
+function loadLocalVideo(file) {
+  if (!file) return;
+  document.getElementById('video-placeholder').style.display = 'none';
+  document.getElementById('yt-player-wrap').style.display = 'none';
+  localVideo.style.display = 'block';
+  localVideo.src = URL.createObjectURL(file);
+  document.getElementById('local-controls').className = 'show';
+
+  localVideo.onloadedmetadata = () => {
+    document.getElementById('local-seek').max = localVideo.duration;
+    setStatus('ok', file.name + ' — ready to sync');
+    startLoop();
+  };
+  localVideo.ontimeupdate = () => {
+    if (isSeeking) return;
+    document.getElementById('local-seek').value = localVideo.currentTime;
+    document.getElementById('local-time').textContent = fmt(localVideo.currentTime) + ' / ' + fmt(localVideo.duration);
+  };
+  localVideo.onplay = () => { document.getElementById('play-btn').textContent = '⏸'; setStatus('ok', 'Playing'); };
+  localVideo.onpause = () => { document.getElementById('play-btn').textContent = '▶'; setStatus('warn', 'Paused'); };
+}
+
+function togglePlay() { localVideo.paused ? localVideo.play() : localVideo.pause(); }
+function seekLocal(v) { isSeeking = true; localVideo.currentTime = parseFloat(v); setTimeout(() => isSeeking = false, 150); }
+function setVol(v) { localVideo.volume = parseFloat(v); }
+
+function setSpeed(v) {
+  const rate = parseFloat(v);
+  document.getElementById('speed-label').textContent = rate.toFixed(2).replace(/\.?0+$/, '') + '×';
+  if (source === 'local') localVideo.playbackRate = rate;
+  if (source === 'yt' && ytReady && ytPlayer) ytPlayer.setPlaybackRate(rate);
+}
+function resetSpeed() {
+  document.getElementById('speed-slider').value = 1;
+  setSpeed(1);
+}
+
+// drag video onto video area
+document.getElementById('video-wrap').addEventListener('dragover', e => e.preventDefault());
+document.getElementById('video-wrap').addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('video/')) { switchSource('local'); loadLocalVideo(f); }
+});
+
+// ── TAB / PDF ──────────────────────────────────────────
+async function handleFile(file) {
+  if (!file) return;
+  const inner = document.getElementById('tab-scroll-inner');
+  inner.innerHTML = ''; tabOffset = 0;
+  setStatus('warn', 'Loading ' + file.name + '...');
+
+  if (file.type.startsWith('image/')) {
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    img.style.cssText = 'width:100%;display:block';
+    inner.appendChild(img);
+    setStatus('ok', 'Image loaded');
+    document.getElementById('mode-switch').style.display = 'flex';
+    return;
+  }
+
+  if (typeof pdfjsLib === 'undefined') {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    document.head.appendChild(s);
+    await new Promise(r => s.onload = r);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  setStatus('warn', 'Rendering ' + pdf.numPages + ' page(s)...');
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const vp = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = vp.width; canvas.height = vp.height;
+    canvas.style.cssText = 'width:100%;display:block';
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    inner.appendChild(canvas);
+  }
+  setStatus('ok', pdf.numPages + ' page(s) loaded');
+  document.getElementById('mode-switch').style.display = 'flex';
+}
+
+document.getElementById('tab-canvas-wrap').addEventListener('dragover', e => e.preventDefault());
+document.getElementById('tab-canvas-wrap').addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+
+// ── SCROLL ─────────────────────────────────────────────
+function scrollTabBy(delta) { tabOffset = Math.max(0, tabOffset + delta); applyScroll(); }
+
+function applyScroll(animated = true) {
+  const inner = document.getElementById('tab-scroll-inner');
+  const wrap = document.getElementById('tab-canvas-wrap');
+  const maxOff = Math.max(0, inner.scrollHeight - wrap.clientHeight);
+  tabOffset = Math.min(tabOffset, maxOff);
+  inner.style.transition = animated ? 'top 0.3s cubic-bezier(.4,0,.2,1)' : 'none';
+  inner.style.top = (-tabOffset) + 'px';
+}
+
+document.getElementById('tab-canvas-wrap').addEventListener('wheel', e => {
+  e.preventDefault(); tabOffset = Math.max(0, tabOffset + e.deltaY); applyScroll(false);
+}, { passive: false });
+
+document.addEventListener('keydown', e => {
+  if (document.activeElement.tagName === 'INPUT') return;
+  if (e.key === 'ArrowUp') { e.preventDefault(); scrollTabBy(-80); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); scrollTabBy(80); }
+  if (e.key === ' ') { e.preventDefault(); if (source === 'local') togglePlay(); }
+  if (e.key === 'm' || e.key === 'M') addMarker();
+});
+
+// ── MARKERS ────────────────────────────────────────────
+function addMarker() {
+  if (!isReady()) { alert('Load a video first.'); return; }
+  markers.push({ t: getCurrentTime(), offset: tabOffset });
+  markers.sort((a, b) => a.t - b.t);
+  renderMarkers();
+}
+function delMarker(i) { markers.splice(i, 1); renderMarkers(); }
+function clearMarkers() { if (markers.length && confirm('Clear all markers?')) { markers = []; renderMarkers(); } }
+
+function renderMarkers() {
+  const list = document.getElementById('marker-list');
+  if (!markers.length) { list.innerHTML = '<p style="font-size:11px;color:#3a3a3a;padding:2px 0">No markers yet.</p>'; return; }
+  list.innerHTML = markers.map((m, i) => `
+    <div class="marker-item" id="mi-${i}">
+      <span class="m-ts">${fmt(m.t)}</span>
+      <span class="m-label">scroll ${Math.round(m.offset)}px</span>
+      <button class="m-del" onclick="delMarker(${i})">×</button>
+    </div>`).join('');
+}
+
+// ── MODE ───────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.getElementById('mb-sync').className = 'mode-btn' + (m === 'sync' ? ' on' : '');
+  document.getElementById('mb-play').className = 'mode-btn' + (m === 'play' ? ' on' : '');
+  document.getElementById('sync-section').style.display = m === 'sync' ? 'block' : 'none';
+}
+
+// ── LOOP ───────────────────────────────────────────────
+function startLoop() {
+  if (animFrame) cancelAnimationFrame(animFrame);
+  function loop() {
+    const t = getCurrentTime(), dur = getDuration();
+    document.getElementById('time-disp').textContent = fmt(t);
+    if (dur) document.getElementById('progress-bar').style.width = Math.min(100, (t / dur) * 100) + '%';
+    if (mode === 'play') updatePlayback(t);
+    highlightMarker(t);
+    animFrame = requestAnimationFrame(loop);
+  }
+  animFrame = requestAnimationFrame(loop);
+}
+
+function updatePlayback(t) {
+  if (markers.length < 2) return;
+  let prev = null, next = null;
+  for (let i = 0; i < markers.length; i++) {
+    if (markers[i].t <= t) prev = markers[i];
+    else { next = markers[i]; break; }
+  }
+  if (!prev) return;
+  if (!next) { tabOffset = prev.offset; applyScroll(false); return; }
+  const pct = Math.min(1, (t - prev.t) / (next.t - prev.t));
+  tabOffset = prev.offset + (next.offset - prev.offset) * pct;
+  applyScroll(false);
+}
+
+function highlightMarker(t) {
+  markers.forEach((m, i) => {
+    const el = document.getElementById('mi-' + i);
+    if (el) el.className = 'marker-item' + (m.t <= t && (!markers[i + 1] || markers[i + 1].t > t) ? ' active' : '');
+  });
+}
+
+function seekFromProgress(e) {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  const dur = getDuration(); if (!dur) return;
+  if (source === 'yt' && ytReady) ytPlayer.seekTo(pct * dur, true);
+  if (source === 'local') localVideo.currentTime = pct * dur;
+}
+
+// ── EXPORT / IMPORT ────────────────────────────────────
+function exportMarkers() {
+  if (!markers.length) { alert('No markers to export.'); return; }
+  const a = document.createElement('a');
+  a.href = 'data:application/json,' + encodeURIComponent(JSON.stringify({ markers }, null, 2));
+  a.download = 'tab-sync.json'; a.click();
+}
+function importMarkers(input) {
+  const file = input.files[0]; if (!file) return;
+  const r = new FileReader();
+  r.onload = e => { try { const d = JSON.parse(e.target.result); if (d.markers) { markers = d.markers; renderMarkers(); setStatus('ok', markers.length + ' markers imported'); } } catch { alert('Invalid JSON'); } };
+  r.readAsText(file); input.value = '';
+}
+
+// init
+renderMarkers(); setMode('sync'); switchSource('yt'); startLoop();
+</script>
+</body>
+</html>
